@@ -29,9 +29,23 @@ function plugin(options, imports, register) {
         warning: new raygun.Client().init({ apiKey: options.keys.warning })
     };
     
-    clients.error.setVersion(options.version + ".0");
-    clients.warning.setVersion(options.version + ".0");
-
+    var customClients = options.customClients || {};
+    for (var client in customClients) {
+        clients[client] = new raygun.Client().init({ apiKey: customClients[client] });
+    }
+    
+    for (var client in clients) {
+        client = clients[client];
+        client._send = client.send;
+        client.send = function(exception, customData, callback, request) {
+            if (!exception.stack)
+                exception = new Error(exception.message || exception);
+                
+            return this._send.apply(this, arguments);
+        };
+        client.setVersion(options.version + ".0");
+    }
+    
     graceful.on("destroy", function(err) {
         if (!err) return graceful.emit("destroyComplete");
         console.error(err);
@@ -46,6 +60,9 @@ function plugin(options, imports, register) {
             Client: clients.error,
             errorClient: clients.error,
             warningClient: clients.warning,
+            customClient: function(name) {
+                return clients[name];
+            },
             customData: customData
         }
     });

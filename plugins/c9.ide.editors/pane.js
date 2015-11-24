@@ -103,16 +103,29 @@ define(function(require, module, exports) {
                         emit("afterClose", event);
                         
                         if (tab.aml.$amlDestroyed) {
-                            tab.unload(e);
+                            tab.unload(event);
                             closing--;
+                        }
+                        else if (tab.meta.$skipAnimation) {
+                            closeNow();
                         }
                         else {
                             tab.aml.on("afterclose", function(){
+                                closeNow();
+                            });
+                        }
+                        
+                        function closeNow(){
+                            if (tab.meta.$closeSync) {
+                                tab.unload(event);
+                                closing--;
+                            }
+                            else {
                                 setTimeout(function(){
-                                    tab.unload(e);
+                                    tab.unload(event);
                                     closing--;
                                 });
-                            });
+                            }
                         }
                     },
                     overactivetab: true,
@@ -230,7 +243,7 @@ define(function(require, module, exports) {
             }
             
             function hsplit(far, vertically, split, ignore) {
-                if (!split || !split.parentNode) split = amlPane;
+                if (!$isValidSplit(split) || !split.parentNode) split = amlPane;
                 
                 queue = []; // Used for resizing later
                 
@@ -268,6 +281,16 @@ define(function(require, module, exports) {
                 resizeAll();
                 
                 return newtab.cloud9pane;
+            }
+            
+            function $isValidSplit(container) {
+                // would be better to use tabmanager.containers instead
+                while (container) {
+                    if (container.localName == "bar")
+                        break;
+                    container = container.parentNode;
+                }
+                return !!container;
             }
             
             // Resize all editors in the queue
@@ -399,6 +422,8 @@ define(function(require, module, exports) {
                 }
                 
                 if (next) {
+                    if (!$isValidSplit(next)) 
+                        return;
                     // Moving from horizontal to vertical or vice verse
                     if (force || next.parentNode.localName != amlPane.parentNode.localName) {
                         var tosplit = force || next.parentNode.localName == "bar"

@@ -1,5 +1,5 @@
 define(function(require, module, exports) {
-    main.consumes = ["Plugin", "UndoManager", "util"];
+    main.consumes = ["Plugin", "UndoManager", "util", "error_handler"];
     main.provides = ["Document"];
     return main;
 
@@ -7,6 +7,7 @@ define(function(require, module, exports) {
         var Plugin = imports.Plugin;
         var util = imports.util;
         var UndoManager = imports.UndoManager;
+        var reportError = imports.error_handler.reportError;
         
         function Document(options) {
             var plugin = new Plugin("Ajax.org", main.consumes);
@@ -39,43 +40,45 @@ define(function(require, module, exports) {
             
             // Listen to changes and detect when the value of the editor
             // is different from what is on disk
-            undoManager.on("change", function(e) {
-                var c = !undoManager.isAtBookmark();
-                if (changed !== c || undoManager.position == -1) {
-                    changed = c;
-                    emit("changed", { changed: c });
-                }
-            });
+            function initUndo(){
+                undoManager.on("change", function(e) {
+                    var c = !undoManager.isAtBookmark();
+                    if (changed !== c) {
+                        changed = c;
+                        emit("changed", { changed: c });
+                    }
+                });
+            }
+            initUndo();
             
             /***** Methods *****/
             
             function setBookmarkedValue(value, cleansed) {
                 if (plugin.value == value) {
+                    recentValue = value;
                     undoManager.bookmark();
                     return;
                 }
                 var state = getState();
                 
-                undoManager.once("change", function(){
-                    // Bookmark the undo manager
-                    undoManager.bookmark();
-                    
-                    // Update state
-                    delete state.changed;
-                    delete state.value;
-                    delete state.meta;
-                    state.undoManager = undoManager.getState();
-                    
-                    if (cleansed && editor && state[editor.type])
-                        state[editor.type].cleansed = true;
-                    
-                    // Set new state (preserving original state)
-                    if (emit("mergeState") !== false)
-                        setState(state);
-                });
-                
                 // Record value (which should add an undo stack item)
                 plugin.value = value;
+                
+                // Bookmark the undo manager
+                undoManager.bookmark();
+                
+                // Update state
+                delete state.changed;
+                delete state.value;
+                delete state.meta;
+                state.undoManager = undoManager.getState();
+                
+                if (cleansed && editor && state[editor.type])
+                    state[editor.type].cleansed = true;
+                
+                // Set new state (preserving original state)
+                if (emit("mergeState") !== false)
+                    setState(state);
             }
             
             function getState(filter) {
@@ -338,8 +341,11 @@ define(function(require, module, exports) {
                  */
                 get ready(){ return ready; },
                 set ready(v) {
-                    if (ready) throw new Error("Permission Denied");
-                    ready = true;
+                    // try to find out why is this called twice
+                    var e =  new Error("Setting ready on ready document");
+                    if (ready)
+                        reportError(e, {ready: ready});
+                    ready = e.stack || true;
                     emit.sticky("ready", { doc: plugin });
                 },
                 /**
@@ -401,6 +407,11 @@ define(function(require, module, exports) {
                  * @property {UndoManager} undoManager
                  */
                 get undoManager(){ return undoManager; },
+                set undoManager(newUndo){ 
+                    undoManager.unload();
+                    undoManager = newUndo; 
+                    initUndo();
+                },
                 
                 _events: [
                     /**
